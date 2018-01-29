@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: init/transformations/resolveLoader/resolveLoader.js</title>
+    <title>JSDoc: Source: migrate/outputPath/outputPath.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: init/transformations/resolveLoader/resolveLoader.js</h1>
+    <h1 class="page-title">Source: migrate/outputPath/outputPath.js</h1>
 
     
 
@@ -26,91 +26,80 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>"use strict";
-
-const utils = require("../../../utils/ast-utils");
+            <pre class="prettyprint source linenums"><code>const utils = require("../../utils/ast-utils");
 
 /**
  *
- * Transform for resolveLoader. Finds the resolveLoader property from yeoman and creates a
- * property based on what the user has given us.
+ * Transform which adds `path.join` call to `output.path` literals
  *
- * @param j — jscodeshift API
- * @param ast - jscodeshift API
- * @param {any} webpackProperties - transformation object to scaffold
- * @param {String} action - action that indicates what to be done to the AST
- * @returns ast - jscodeshift API
+ * @param {object} j — jscodeshift top-level import
+ * @param {Collection} ast — jscodeshift Collection to transform
+ * @returns {Collection} ast — jscodeshift Collection
  */
 
-module.exports = function resolveLoaderTransform(
-	j,
-	ast,
-	webpackProperties,
-	action
-) {
-	function createResolveLoaderProperty(p) {
-		if (typeof webpackProperties === "string") {
-			return utils.pushCreateProperty(j, p, "resolveLoader", webpackProperties);
-		}
-		if (Array.isArray(webpackProperties)) {
-			const externalArray = utils.createArrayWithChildren(
-				j,
-				"resolveLoader",
-				webpackProperties,
-				true
+module.exports = function(j, ast) {
+	const literalOutputPath = ast
+		.find(j.ObjectExpression)
+		.filter(
+			p =>
+				utils.safeTraverse(p, ["parentPath", "value", "key", "name"]) ===
+				"output"
+		)
+		.find(j.Property)
+		.filter(
+			p =>
+				utils.safeTraverse(p, ["value", "key", "name"]) === "path" &amp;&amp;
+				utils.safeTraverse(p, ["value", "value", "type"]) === "Literal"
+		);
+
+	if (literalOutputPath) {
+		let pathVarName = "path";
+		let isPathPresent = false;
+		const pathDecalaration = ast
+			.find(j.VariableDeclarator)
+			.filter(
+				p =>
+					utils.safeTraverse(p, ["value", "init", "callee", "name"]) ===
+					"require"
+			)
+			.filter(
+				p =>
+					utils.safeTraverse(p, ["value", "init", "arguments"]) &amp;&amp;
+					p.value.init.arguments.reduce((isPresent, a) => {
+						return (a.type === "Literal" &amp;&amp; a.value === "path") || isPresent;
+					}, false)
 			);
-			return p.value.properties.push(externalArray);
-		} else {
-			utils.pushCreateProperty(j, p, "resolveLoader", j.objectExpression([]));
-			return utils.pushObjectKeys(j, p, webpackProperties, "resolveLoader");
+
+		if (pathDecalaration) {
+			isPathPresent = true;
+			pathDecalaration.forEach(p => {
+				pathVarName = utils.safeTraverse(p, ["value", "id", "name"]);
+			});
 		}
-	}
-	function editResolveLoaderProperty(p) {
-		return utils.pushObjectKeys(j, p, webpackProperties, "resolveLoader", true);
-	}
-	if (webpackProperties) {
-		if (action === "init") {
+		const finalPathName = pathVarName;
+		literalOutputPath
+			.find(j.Literal)
+			.replaceWith(p => replaceWithPath(j, p, finalPathName));
+
+		if (!isPathPresent) {
+			const pathRequire = utils.getRequire(j, "path", "path");
 			return ast
-				.find(j.ObjectExpression)
-				.filter(p => utils.isAssignment(null, p, createResolveLoaderProperty));
-		} else if (action === "add") {
-			const resolveLoaderNode = utils.findRootNodesByName(
-				j,
-				ast,
-				"resolveLoader"
-			);
-			if (
-				resolveLoaderNode.size() !== 0 &amp;&amp;
-				typeof webpackProperties === "object"
-			) {
-				return ast
-					.find(j.ObjectExpression)
-					.filter(p => utils.isAssignment(null, p, editResolveLoaderProperty));
-			} else if (resolveLoaderNode.size() !== 0 &amp;&amp; webpackProperties.length) {
-				return ast
-					.find(j.ObjectExpression)
-					.filter(
-						p =>
-							utils.safeTraverse(p, ["parentPath", "value", "key", "name"]) ===
-							"resolveLoader"
-					)
-					.forEach(p => {
-						j(p).replaceWith(
-							utils.createIdentifierOrLiteral(j, webpackProperties)
-						);
-					});
-			} else {
-				return resolveLoaderTransform(j, ast, webpackProperties, "init");
-			}
-		} else if (action === "remove") {
-			// TODO
-		} else if (action === "update") {
-			// TODO
+				.find(j.Program)
+				.replaceWith(p =>
+					j.program([].concat(pathRequire).concat(p.value.body))
+				);
 		}
-	} else {
-		return ast;
 	}
+	return ast;
 };
+
+function replaceWithPath(j, p, pathVarName) {
+	const convertedPath = j.callExpression(
+		j.memberExpression(j.identifier(pathVarName), j.identifier("join"), false),
+		[j.identifier("__dirname"), p.value]
+	);
+	return convertedPath;
+}
 </code></pre>
         </article>
     </section>

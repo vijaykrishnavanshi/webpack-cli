@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>JSDoc: Source: init/transformations/resolveLoader/resolveLoader.js</title>
+    <title>JSDoc: Source: migrate/bannerPlugin/bannerPlugin.js</title>
 
     <script src="scripts/prettify/prettify.js"> </script>
     <script src="scripts/prettify/lang-css.js"> </script>
@@ -17,7 +17,7 @@
 
 <div id="main">
 
-    <h1 class="page-title">Source: init/transformations/resolveLoader/resolveLoader.js</h1>
+    <h1 class="page-title">Source: migrate/bannerPlugin/bannerPlugin.js</h1>
 
     
 
@@ -26,90 +26,38 @@
     
     <section>
         <article>
-            <pre class="prettyprint source linenums"><code>"use strict";
-
-const utils = require("../../../utils/ast-utils");
+            <pre class="prettyprint source linenums"><code>const utils = require("../../utils/ast-utils");
 
 /**
  *
- * Transform for resolveLoader. Finds the resolveLoader property from yeoman and creates a
- * property based on what the user has given us.
+ * Transform for BannerPlugin arguments. Consolidates first and second argument (if
+ * both are present) into single options object.
  *
- * @param j — jscodeshift API
- * @param ast - jscodeshift API
- * @param {any} webpackProperties - transformation object to scaffold
- * @param {String} action - action that indicates what to be done to the AST
- * @returns ast - jscodeshift API
+ * @param {object} j — jscodeshift top-level import
+ * @param {Collection} ast — jscodeshift Collection to transform
+ * @returns {Collection} ast — jscodeshift Collection
  */
 
-module.exports = function resolveLoaderTransform(
-	j,
-	ast,
-	webpackProperties,
-	action
-) {
-	function createResolveLoaderProperty(p) {
-		if (typeof webpackProperties === "string") {
-			return utils.pushCreateProperty(j, p, "resolveLoader", webpackProperties);
-		}
-		if (Array.isArray(webpackProperties)) {
-			const externalArray = utils.createArrayWithChildren(
-				j,
-				"resolveLoader",
-				webpackProperties,
-				true
-			);
-			return p.value.properties.push(externalArray);
-		} else {
-			utils.pushCreateProperty(j, p, "resolveLoader", j.objectExpression([]));
-			return utils.pushObjectKeys(j, p, webpackProperties, "resolveLoader");
-		}
-	}
-	function editResolveLoaderProperty(p) {
-		return utils.pushObjectKeys(j, p, webpackProperties, "resolveLoader", true);
-	}
-	if (webpackProperties) {
-		if (action === "init") {
-			return ast
-				.find(j.ObjectExpression)
-				.filter(p => utils.isAssignment(null, p, createResolveLoaderProperty));
-		} else if (action === "add") {
-			const resolveLoaderNode = utils.findRootNodesByName(
-				j,
-				ast,
-				"resolveLoader"
-			);
-			if (
-				resolveLoaderNode.size() !== 0 &amp;&amp;
-				typeof webpackProperties === "object"
-			) {
-				return ast
-					.find(j.ObjectExpression)
-					.filter(p => utils.isAssignment(null, p, editResolveLoaderProperty));
-			} else if (resolveLoaderNode.size() !== 0 &amp;&amp; webpackProperties.length) {
-				return ast
-					.find(j.ObjectExpression)
-					.filter(
-						p =>
-							utils.safeTraverse(p, ["parentPath", "value", "key", "name"]) ===
-							"resolveLoader"
-					)
-					.forEach(p => {
-						j(p).replaceWith(
-							utils.createIdentifierOrLiteral(j, webpackProperties)
-						);
-					});
-			} else {
-				return resolveLoaderTransform(j, ast, webpackProperties, "init");
+module.exports = function(j, ast) {
+	return utils
+		.findPluginsByName(j, ast, ["webpack.BannerPlugin"])
+		.forEach(path => {
+			const args = path.value.arguments; // any node
+			// If the first argument is a literal replace it with object notation
+			// See https://webpack.js.org/guides/migrating/#bannerplugin-breaking-change
+			if (args &amp;&amp; args.length > 1 &amp;&amp; args[0].type === j.Literal.name) {
+				// and remove the first argument
+				path.value.arguments = [path.value.arguments[1]];
+				utils.createOrUpdatePluginByName(
+					j,
+					path.parent,
+					"webpack.BannerPlugin",
+					{
+						banner: args[0].value
+					}
+				);
 			}
-		} else if (action === "remove") {
-			// TODO
-		} else if (action === "update") {
-			// TODO
-		}
-	} else {
-		return ast;
-	}
+		});
 };
 </code></pre>
         </article>
